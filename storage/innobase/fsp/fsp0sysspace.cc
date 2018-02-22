@@ -571,8 +571,9 @@ SysTablespace::read_lsn_and_check_flags(lsn_t* flushed_lsn)
 
 	ut_a(it->order() == 0);
 
-
-	err = buf_dblwr_init_or_load_pages(it->handle(), it->filepath());
+	err = buf_dblwr_init_or_load_pages(it->handle(), it->filepath(),
+		m_files.begin()->m_encryption_key,
+		m_files.begin()->m_encryption_iv);
 	if (err != DB_SUCCESS) {
 		return(err);
 	}
@@ -976,6 +977,20 @@ SysTablespace::open_or_create(
 
 			err = DB_ERROR;
 			break;
+		}
+	}
+
+	if (srv_system_tablespace_encrypt) {
+		if (create_new_db) {
+			err = fil_set_encryption(space_id(),
+						 Encryption::AES,
+						 NULL,
+						 NULL);
+			ut_ad(err == DB_SUCCESS);
+		} else {
+			err = fil_set_encryption(space_id(), Encryption::AES,
+						m_files.begin()->m_encryption_key,
+						m_files.begin()->m_encryption_iv);
 		}
 	}
 

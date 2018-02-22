@@ -451,7 +451,9 @@ recovery, this function loads the pages from double write buffer into memory.
 dberr_t
 buf_dblwr_init_or_load_pages(
 	pfs_os_file_t	file,
-	const char*	path)
+	const char*	path,
+	unsigned char*	encryption_key,
+	unsigned char*	encryption_iv)
 {
 	byte*		buf;
 	byte*		page;
@@ -486,6 +488,7 @@ buf_dblwr_init_or_load_pages(
 	IORequest	read_request(IORequest::READ);
 
 	read_request.disable_compression();
+	read_request.dblwr_recover();
 
 	err = os_file_read(
 		read_request,
@@ -592,11 +595,6 @@ buf_dblwr_init_or_load_pages(
 			}
 
 			IORequest	write_request(IORequest::WRITE);
-
-			/* Recovered data file pages are written out
-			as uncompressed. */
-
-			write_request.disable_compression();
 
 			err = os_file_write(
 				write_request, path, file, page,
@@ -779,7 +777,7 @@ buf_dblwr_process(void)
 	     i != recv_dblwr.pages.end();
 	     ++i, ++page_no_dblwr) {
 
-		const byte*	page		= *i;
+		byte*	page			= (byte *) *i;
 		ulint		page_no		= page_get_page_no(page);
 		ulint		space_id	= page_get_space_id(page);
 
@@ -816,9 +814,38 @@ buf_dblwr_process(void)
 			unread portion of the page is NUL. */
 			memset(read_buf, 0x0, page_size.physical());
 
+			if (srv_system_tablespace_encrypt) {
+
+				IORequest	decrypt_request;
+
+				fil_space_t*	sys_space =
+						fil_space_get(TRX_SYS_SPACE);
+
+				decrypt_request.encryption_key(
+						sys_space->encryption_key,
+						sys_space->encryption_klen,
+						sys_space->encryption_iv);
+				decrypt_request.encryption_algorithm(
+					Encryption::AES);
+
+				Encryption	encryption(
+					decrypt_request.encryption_algorithm());
+
+				dberr_t	err = encryption.decrypt(
+					decrypt_request,
+					page, page_size.physical(), NULL,
+					page_size.physical());
+				ut_a(err == DB_SUCCESS);
+			}
+
 			IORequest	request;
 
-			request.dblwr_recover();
+			fil_space_t*	space = fil_space_get(space_id);
+
+			request.encryption_key(space->encryption_key,
+						space->encryption_klen,
+						space->encryption_iv);
+			request.encryption_algorithm(Encryption::AES);
 
 			/* Read in the actual page from the file */
 			dberr_t	err = fil_io(
@@ -1141,6 +1168,15 @@ buf_dblwr_write_block_to_datafile(
 
 	IORequest	request(type);
 
+	if (srv_system_tablespace_encrypt) {
+		fil_space_t*	space = fil_space_get(TRX_SYS_SPACE);
+
+		request.encryption_key(space->encryption_key,
+					space->encryption_klen,
+					space->encryption_iv);
+		request.encryption_algorithm(Encryption::AES);
+	}
+
 	if (bpage->zip.data != NULL) {
 		ut_ad(bpage->size.is_compressed());
 
@@ -1252,6 +1288,15 @@ buf_dblwr_flush_buffered_writes(
 	ut_ad(file_pos + len <= (dblwr_partition + 1)
 	      * srv_doublewrite_batch_size * UNIV_PAGE_SIZE);
 #endif
+
+	if (srv_system_tablespace_encrypt) {
+		fil_space_t*	space = fil_space_get(TRX_SYS_SPACE);
+
+		io_req.encryption_key(space->encryption_key,
+					space->encryption_klen,
+					space->encryption_iv);
+		io_req.encryption_algorithm(Encryption::AES);
+	}
 
 	os_file_write(io_req, parallel_dblwr_buf.path, parallel_dblwr_buf.file,
 		      write_buf, file_pos, len);
@@ -1431,6 +1476,18 @@ retry:
 			 - TRX_SYS_DOUBLEWRITE_BLOCK_SIZE;
 	}
 
+	IORequest	write_request(IORequest::WRITE);
+
+	if (srv_system_tablespace_encrypt) {
+
+		fil_space_t*	space = fil_space_get(TRX_SYS_SPACE);
+
+		write_request.encryption_key(space->encryption_key,
+					space->encryption_klen,
+					space->encryption_iv);
+		write_request.encryption_algorithm(Encryption::AES);
+	}
+
 	/* We deal with compressed and uncompressed pages a little
 	differently here. In case of uncompressed pages we can
 	directly write the block to the allocated slot in the
@@ -1450,7 +1507,7 @@ retry:
 		       + bpage->size.physical(), 0x0,
 		       univ_page_size.physical() - bpage->size.physical());
 
-		fil_io(IORequestWrite, true,
+		fil_io(write_request, true,
 		       page_id_t(TRX_SYS_SPACE, offset), univ_page_size, 0,
 		       univ_page_size.physical(),
 		       (void*) (buf_dblwr->write_buf
@@ -1459,7 +1516,7 @@ retry:
 	} else {
 		/* It is a regular page. Write it directly to the
 		doublewrite buffer */
-		fil_io(IORequestWrite, true,
+		fil_io(write_request, true,
 		       page_id_t(TRX_SYS_SPACE, offset), univ_page_size, 0,
 		       univ_page_size.physical(),
 		       (void*) ((buf_block_t*) bpage)->frame,

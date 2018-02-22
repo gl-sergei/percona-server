@@ -5472,7 +5472,10 @@ fil_io_set_encryption(
 {
 	/* Don't encrypt the log, page 0 of all tablespaces, all pages
 	from the system tablespace. */
-	if (!req_type.is_log() && page_id.page_no() > 0
+	if (!req_type.is_log() &&
+		(page_id.page_no() > 0 &&
+			!(page_id.space() == TRX_SYS_SPACE &&
+				page_id.page_no() == TRX_SYS_PAGE_NO))
 	    && space->encryption_type != Encryption::NONE)
 	{
 		req_type.encryption_key(space->encryption_key,
@@ -6424,7 +6427,9 @@ fil_iterate(
 		IORequest	read_request(read_type);
 
 		/* For encrypted table, set encryption information. */
-		if (iter.encryption_key != NULL && offset != 0) {
+		if (iter.encryption_key != NULL && offset != 0 &&
+			!(space_id == TRX_SYS_SPACE &&
+				offset / iter.page_size == TRX_SYS_PAGE_NO)) {
 			read_request.encryption_key(iter.encryption_key,
 						    ENCRYPTION_KEY_LEN,
 						    iter.encryption_iv);
@@ -6470,7 +6475,9 @@ fil_iterate(
 		IORequest	write_request(write_type);
 
 		/* For encrypted table, set encryption information. */
-		if (iter.encryption_key != NULL && offset != 0) {
+		if (iter.encryption_key != NULL && offset != 0 &&
+			!(space_id == TRX_SYS_SPACE &&
+				offset / iter.page_size == TRX_SYS_PAGE_NO)) {
 			write_request.encryption_key(iter.encryption_key,
 						     ENCRYPTION_KEY_LEN,
 						     iter.encryption_iv);
@@ -7353,11 +7360,11 @@ fil_set_encryption(
 	byte*			key,
 	byte*			iv)
 {
-	ut_ad(!is_system_or_undo_tablespace(space_id));
+	// ut_ad(!is_system_or_undo_tablespace(space_id));
 
-	if (is_system_tablespace(space_id)) {
-		return(DB_IO_NO_ENCRYPT_TABLESPACE);
-	}
+	// if (is_system_tablespace(space_id)) {
+	// 	return(DB_IO_NO_ENCRYPT_TABLESPACE);
+	// }
 
 	mutex_enter(&fil_system->mutex);
 

@@ -229,6 +229,8 @@ extern my_bool	high_level_read_only;
 /** store to its own file each table created by an user; data
 dictionary tables are in the system tablespace 0 */
 extern my_bool	srv_file_per_table;
+/** encrypt InnoDB system tablespace */
+extern my_bool	srv_system_tablespace_encrypt;
 /** Sleep delay for threads waiting to enter InnoDB. In micro-seconds. */
 extern	ulong	srv_thread_sleep_delay;
 /** Maximum sleep delay (in micro-seconds), value of 0 disables it.*/
