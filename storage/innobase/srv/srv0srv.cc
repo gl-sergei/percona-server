@@ -166,6 +166,8 @@ my_bool	srv_read_only_mode;
 /** store to its own file each table created by an user; data
 dictionary tables are in the system tablespace 0 */
 my_bool	srv_file_per_table;
+/** encrypt InnoDB system tablespace */
+my_bool	srv_system_tablespace_encrypt;
 /** The file format to use on new *.ibd files. */
 ulint	srv_file_format = 0;
 /** Whether to check file format during startup.  A value of

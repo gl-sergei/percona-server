@@ -1731,6 +1731,10 @@ os_file_io_complete(
 
 		ut_ad(!type.is_log());
 
+		if (type.is_dblwr_recover()) {
+			return(DB_SUCCESS);
+		}
+
 		ret = encryption.decrypt(type, buf, src_len, scratch, len);
 		if (ret == DB_SUCCESS) {
 			return(os_file_decompress_page(
@@ -2189,6 +2193,34 @@ os_file_encrypt_page(
 	return(block);
 }
 
+static
+void*
+os_file_encrypt_batch(
+	const IORequest&	type,
+	void*&			buf,
+	ulint			count)
+{
+	Encryption	encryption(type.encryption_algorithm());
+	byte *encrypted_buf = reinterpret_cast<byte*>(
+		malloc(UNIV_PAGE_SIZE * count));
+
+	for (ulint n = 0; n < count; n++) {
+		ulint dst_len;
+		byte *page = reinterpret_cast<byte*>(buf) + n * UNIV_PAGE_SIZE;
+		byte *epage = encrypted_buf + n * UNIV_PAGE_SIZE;
+		ulint page_no = mach_read_from_4(page + FIL_PAGE_OFFSET);
+		if (page_no != 0 && page_no != TRX_SYS_PAGE_NO) {
+			void *res_buf = encryption.encrypt(
+				type, page, UNIV_PAGE_SIZE, epage, &dst_len);
+			ut_a(res_buf == epage);
+		} else {
+			memcpy(epage, page, UNIV_PAGE_SIZE);
+		}
+	}
+
+	return (buf = encrypted_buf);
+}
+
 #ifndef _WIN32
 
 /** Do the read/write
@@ -2202,7 +2234,6 @@ SyncFileIO::execute(const IORequest& request)
 	if (request.is_read()) {
 		n_bytes = pread(m_fh, m_buf, m_n, m_offset);
 	} else {
-		ut_ad(request.is_write());
 		n_bytes = pwrite(m_fh, m_buf, m_n, m_offset);
 	}
 
@@ -5645,6 +5676,7 @@ os_file_io(
 	ulint		original_n = n;
 	IORequest	type = in_type;
 	ssize_t		bytes_returned = 0;
+	void*		malloced_block = NULL;
 
 	if (type.is_compressed()) {
 
@@ -5662,12 +5694,24 @@ os_file_io(
         if (type.is_encrypted() && type.is_write()) {
 		/* We don't encrypt the first page of any file. */
 		Block*	compressed_block = block;
-		ut_ad(offset > 0);
+		// ut_ad(offset > 0);
+		ut_ad(n % UNIV_PAGE_SIZE == 0);
 
-		block = os_file_encrypt_page(type, buf, &n);
+		if (n == UNIV_PAGE_SIZE) {
 
-		if (compressed_block != NULL) {
-			os_free_block(compressed_block);
+			ulint page_no = mach_read_from_4((uchar*)buf + FIL_PAGE_OFFSET);
+
+			if (page_no != 0 && page_no != TRX_SYS_PAGE_NO) {
+
+				block = os_file_encrypt_page(type, buf, &n);
+
+				if (compressed_block != NULL) {
+					os_free_block(compressed_block);
+				}
+			}
+		} else {
+			malloced_block = os_file_encrypt_batch(
+				type, buf, n / UNIV_PAGE_SIZE);
 		}
         }
 
@@ -5703,6 +5747,10 @@ os_file_io(
 				os_free_block(block);
 			}
 
+			if (malloced_block != NULL) {
+				free(block);
+			}
+
 			return(original_n);
 		}
 
@@ -5731,6 +5779,10 @@ os_file_io(
 
 	if (block != NULL) {
 		os_free_block(block);
+	}
+
+	if (malloced_block != NULL) {
+		free(block);
 	}
 
 	*err = DB_IO_ERROR;

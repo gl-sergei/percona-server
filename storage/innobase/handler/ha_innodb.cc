@@ -3969,7 +3969,10 @@ innobase_init(
 
 	/* Create the filespace flags. */
 	ulint	fsp_flags = fsp_flags_init(
-		univ_page_size, false, false, false, false);
+		univ_page_size, false /*atomic_blobs*/, false/*has_data_dir*/,
+		false/*is_shared*/, false/*is_temporary*/,
+		srv_system_tablespace_encrypt/*is_encrypted*/);
+
 	srv_sys_space.set_flags(fsp_flags);
 
 	srv_sys_space.set_name(reserved_system_space_name);
@@ -11772,7 +11775,8 @@ create_table_info_t::create_option_encryption_is_valid() const
 		return(false);
 	}
 
-	if (!table_is_encrypted && tablespace_is_encrypted) {
+	if (!table_is_encrypted && tablespace_is_encrypted &&
+		space_id != TRX_SYS_SPACE) {
 		my_printf_error(ER_ILLEGAL_HA_CREATE_OPTION,
 			"InnoDB: Tablespace `%s` can contain only an"
 			" ENCRYPTED tables.", MYF(0), tablespace_name);
@@ -19094,10 +19098,13 @@ innodb_make_page_dirty(
 		page_size_t(space->flags), RW_X_LATCH, &mtr);
 
 	if (block != NULL) {
-		byte*	page = block->frame;
+		byte*	page = buf_block_get_frame(block);
 
 		ib::info() << "Dirtying page: " << page_id_t(
 			page_get_space_id(page), page_get_page_no(page));
+
+		ut_ad(page_get_page_no(page) == srv_saved_page_number_debug);
+		ut_ad(page_get_space_id(page) == space_id);
 
 		mlog_write_ulint(page + FIL_PAGE_TYPE,
 				 fil_page_get_type(page),
@@ -20682,6 +20689,11 @@ static MYSQL_SYSVAR_BOOL(checksums, innobase_use_checksums,
   " Disable with --skip-innodb-checksums.",
   NULL, NULL, TRUE);
 
+static MYSQL_SYSVAR_BOOL(system_tablespace_encrypt, srv_system_tablespace_encrypt,
+  PLUGIN_VAR_READONLY,
+  "Encrypt InnoDB system tablespace.",
+  NULL, NULL, FALSE);
+
 static MYSQL_SYSVAR_STR(data_home_dir, innobase_data_home_dir,
   PLUGIN_VAR_READONLY,
   "The common part for InnoDB table spaces.",
@@ -21783,6 +21795,7 @@ static struct st_mysql_sys_var* innobase_system_variables[]= {
   MYSQL_SYSVAR(kill_idle_transaction),
   MYSQL_SYSVAR(data_file_path),
   MYSQL_SYSVAR(temp_data_file_path),
+  MYSQL_SYSVAR(system_tablespace_encrypt),
   MYSQL_SYSVAR(data_home_dir),
   MYSQL_SYSVAR(doublewrite),
   MYSQL_SYSVAR(stats_include_delete_marked),

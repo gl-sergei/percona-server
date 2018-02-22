@@ -66,7 +66,9 @@ MY_ATTRIBUTE((warn_unused_result))
 dberr_t
 buf_dblwr_init_or_load_pages(
 	pfs_os_file_t	file,
-	const char*	path);
+	const char*	path,
+	unsigned char*	encryption_key,
+	unsigned char*	encryption_iv);
 
 /** Process and remove the double write buffer pages for all tablespaces. */
 void
