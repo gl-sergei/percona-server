@@ -206,7 +206,7 @@ buf_read_page_low(
 
 	*err = _fil_io(
 		request, sync, page_id, page_size, 0, page_size.physical(),
-		dst, bpage, trx, should_buffer);
+		dst, bpage, trx, should_buffer, NULL);
 
 	if (sync) {
 		thd_wait_end(NULL);

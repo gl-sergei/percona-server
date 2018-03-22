@@ -980,18 +980,10 @@ SysTablespace::open_or_create(
 		}
 	}
 
-	if (srv_system_tablespace_encrypt) {
-		if (create_new_db) {
-			err = fil_set_encryption(space_id(),
-						 Encryption::AES,
-						 NULL,
-						 NULL);
-			ut_ad(err == DB_SUCCESS);
-		} else {
-			err = fil_set_encryption(space_id(), Encryption::AES,
-						m_files.begin()->m_encryption_key,
-						m_files.begin()->m_encryption_iv);
-		}
+	if (srv_system_tablespace_encrypt && create_new_db) {
+		err = fil_set_encryption(
+			space_id(), Encryption::AES, NULL, NULL);
+		ut_ad(err == DB_SUCCESS);
 	}
 
 	return(err);

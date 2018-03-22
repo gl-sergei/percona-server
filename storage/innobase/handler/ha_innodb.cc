@@ -3969,9 +3969,9 @@ innobase_init(
 
 	/* Create the filespace flags. */
 	ulint	fsp_flags = fsp_flags_init(
-		univ_page_size, false /*atomic_blobs*/, false/*has_data_dir*/,
-		false/*is_shared*/, false/*is_temporary*/,
-		srv_system_tablespace_encrypt/*is_encrypted*/);
+		univ_page_size, false /*atomic_blobs*/, false /*has_data_dir*/,
+		false /*is_shared*/, false /*is_temporary*/,
+		false /*srv_system_tablespace_encrypt*/ /*is_encrypted*/);
 
 	srv_sys_space.set_flags(fsp_flags);
 

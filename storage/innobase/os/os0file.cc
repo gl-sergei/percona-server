@@ -5670,6 +5670,7 @@ os_file_io(
 	void*		buf,
 	ulint		n,
 	os_offset_t	offset,
+	void*		out_buf,
 	dberr_t*	err)
 {
 	Block*		block;
@@ -5822,7 +5823,8 @@ os_file_pwrite(
 	(void) os_atomic_increment_ulint(&os_n_pending_writes, 1);
 	MONITOR_ATOMIC_INC(MONITOR_OS_PENDING_WRITES);
 
-	ssize_t	n_bytes = os_file_io(type, file, (void*) buf, n, offset, err);
+	ssize_t	n_bytes = os_file_io(type, file, (void*) buf, n, offset,
+				     NULL, err);
 
 	DBUG_EXECUTE_IF("xb_simulate_all_o_direct_write_failure",
 			n_bytes = -1;
@@ -5928,7 +5930,7 @@ os_file_pread(
 	(void) os_atomic_increment_ulint(&os_n_pending_reads, 1);
 	MONITOR_ATOMIC_INC(MONITOR_OS_PENDING_READS);
 
-	ssize_t	n_bytes = os_file_io(type, file, buf, n, offset, err);
+	ssize_t	n_bytes = os_file_io(type, file, buf, n, offset, NULL, err);
 
 	DBUG_EXECUTE_IF("xb_simulate_all_o_direct_read_failure",
 			n_bytes = -1;
@@ -6301,7 +6303,7 @@ os_file_set_size(
 			request,
 			OS_AIO_SYNC, name,
 			file, buf, current_size, n_bytes,
-			read_only, NULL, NULL, 0, NULL, false);
+			read_only, NULL, NULL, 0, NULL, false, NULL);
 #endif /* UNIV_HOTBACKUP */
 
 		if (err != DB_SUCCESS) {
@@ -7776,7 +7778,8 @@ os_aio_func(
 	void*		m2,
 	ulint		space_id,
 	trx_t*		trx,
-	bool		should_buffer)
+	bool		should_buffer,
+	void*		out_buf)
 {
 #ifdef WIN_ASYNC_IO
 	BOOL		ret = TRUE;
@@ -7816,7 +7819,13 @@ os_aio_func(
 		}
 
 		ut_ad(type.is_write());
-		return(os_file_write_func(type, name, file.m_file, buf, offset, n));
+		dberr_t err = os_file_write_func(type, name, file.m_file, buf, offset, n);
+
+		if (out_buf != NULL) {
+			memcpy(out_buf, buf, n);
+		}
+
+		return err;
 	}
 
 try_again:
@@ -7829,6 +7838,10 @@ try_again:
 
 	slot = array->reserve_slot(type, m1, m2, file, name, buf, offset, n,
 				   space_id);
+
+	if (out_buf != NULL) {
+		memcpy(out_buf, slot->buf_block->m_ptr, n);
+	}
 
 	if (type.is_read()) {
 

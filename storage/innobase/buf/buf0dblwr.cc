@@ -814,17 +814,14 @@ buf_dblwr_process(void)
 			unread portion of the page is NUL. */
 			memset(read_buf, 0x0, page_size.physical());
 
-			if (srv_system_tablespace_encrypt) {
+			if (FSP_FLAGS_GET_ENCRYPTION(space->flags)) {
 
 				IORequest	decrypt_request;
 
-				fil_space_t*	sys_space =
-						fil_space_get(TRX_SYS_SPACE);
-
 				decrypt_request.encryption_key(
-						sys_space->encryption_key,
-						sys_space->encryption_klen,
-						sys_space->encryption_iv);
+						space->encryption_key,
+						space->encryption_klen,
+						space->encryption_iv);
 				decrypt_request.encryption_algorithm(
 					Encryption::AES);
 
@@ -840,18 +837,22 @@ buf_dblwr_process(void)
 
 			IORequest	request;
 
-			fil_space_t*	space = fil_space_get(space_id);
+			// request.dblwr_recover();
 
-			request.encryption_key(space->encryption_key,
-						space->encryption_klen,
-						space->encryption_iv);
-			request.encryption_algorithm(Encryption::AES);
+			if (FSP_FLAGS_GET_ENCRYPTION(space->flags)) {
+				fil_space_t*	space = fil_space_get(space_id);
+
+				request.encryption_key(space->encryption_key,
+							space->encryption_klen,
+							space->encryption_iv);
+				request.encryption_algorithm(Encryption::AES);
+			}
 
 			/* Read in the actual page from the file */
 			dberr_t	err = fil_io(
 				request, true,
 				page_id, page_size,
-				0, page_size.physical(), read_buf, NULL);
+				0, page_size.physical(), read_buf, NULL, NULL);
 
 			if (err != DB_SUCCESS) {
 
@@ -938,7 +939,7 @@ buf_dblwr_process(void)
 			fil_io(write_request, true,
 			       page_id, page_size,
 			       0, page_size.physical(),
-			       const_cast<byte*>(page), NULL);
+			       const_cast<byte*>(page), NULL, NULL);
 
 			ib::info()
 				<< "Recovered page "
@@ -1155,10 +1156,13 @@ void
 buf_dblwr_write_block_to_datafile(
 /*==============================*/
 	const buf_page_t*	bpage,	/*!< in: page to write */
+	void*			out_buf,
 	bool			sync)	/*!< in: true if sync IO
 					is requested */
 {
 	ut_a(buf_page_in_file(bpage));
+
+	ut_a(out_buf != NULL);
 
 	ulint	type = IORequest::WRITE;
 
@@ -1168,22 +1172,14 @@ buf_dblwr_write_block_to_datafile(
 
 	IORequest	request(type);
 
-	if (srv_system_tablespace_encrypt) {
-		fil_space_t*	space = fil_space_get(TRX_SYS_SPACE);
-
-		request.encryption_key(space->encryption_key,
-					space->encryption_klen,
-					space->encryption_iv);
-		request.encryption_algorithm(Encryption::AES);
-	}
-
 	if (bpage->zip.data != NULL) {
 		ut_ad(bpage->size.is_compressed());
 
 		fil_io(request, sync, bpage->id, bpage->size, 0,
 		       bpage->size.physical(),
-		       (void*) bpage->zip.data,
-		       (void*) bpage);
+		       (void*) out_buf,
+		       (void*) bpage,
+		       NULL);
 	} else {
 		ut_ad(!bpage->size.is_compressed());
 
@@ -1198,7 +1194,7 @@ buf_dblwr_write_block_to_datafile(
 
 		fil_io(request,
 		       sync, bpage->id, bpage->size, 0, bpage->size.physical(),
-		       block->frame, block);
+		       out_buf, block, NULL);
 	}
 }
 
@@ -1289,14 +1285,39 @@ buf_dblwr_flush_buffered_writes(
 	      * srv_doublewrite_batch_size * UNIV_PAGE_SIZE);
 #endif
 
-	if (srv_system_tablespace_encrypt) {
-		fil_space_t*	space = fil_space_get(TRX_SYS_SPACE);
+	byte *out_buf_unaligned = static_cast<byte*>(
+		ut_malloc_nokey(2 * UNIV_PAGE_SIZE));
+
+	byte *out_buf = static_cast<byte*>(
+		ut_align(out_buf_unaligned,
+			 UNIV_PAGE_SIZE));
+
+	for (byte *page = write_buf; page - write_buf < len;
+	     page += UNIV_PAGE_SIZE) {
+		ulint space_id = page_get_space_id(page);
+		fil_space_t*	space = fil_space_get(space_id);
+		ulint dst_len;
+
+		IORequest io_req(IORequest::WRITE);
 
 		io_req.encryption_key(space->encryption_key,
 					space->encryption_klen,
 					space->encryption_iv);
 		io_req.encryption_algorithm(Encryption::AES);
+
+		Encryption encryption(io_req.encryption_algorithm());
+
+		if (FSP_FLAGS_GET_ENCRYPTION(space->flags)) {
+			encryption.encrypt(io_req, page, UNIV_PAGE_SIZE,
+					   out_buf, &dst_len);
+			memcpy(page, out_buf, dst_len);
+			ut_ad(!(page[0] == 0x8f && page[1] == 0x8f && page[2] == 0x8f));
+			ut_ad(!(page[0] == 0x00 && page[1] == 0x00 && page[2] == 0x00));
+		}
+
 	}
+
+	ut_free(out_buf_unaligned);
 
 	os_file_write(io_req, parallel_dblwr_buf.path, parallel_dblwr_buf.file,
 		      write_buf, file_pos, len);
@@ -1319,7 +1340,8 @@ buf_dblwr_flush_buffered_writes(
 
 	for (ulint i = 0; i < dblwr_shard->first_free; i++) {
 		buf_dblwr_write_block_to_datafile(
-			dblwr_shard->buf_block_arr[i], false);
+			dblwr_shard->buf_block_arr[i],
+			write_buf + i * UNIV_PAGE_SIZE, false);
 	}
 
 	/* Wake possible simulated aio thread to actually post the
@@ -1422,6 +1444,13 @@ buf_dblwr_write_single_page(
 
 	size = 2 * TRX_SYS_DOUBLEWRITE_BLOCK_SIZE;
 
+	void *out_buf_unaligned = static_cast<byte*>(
+		ut_malloc_nokey(2 * UNIV_PAGE_SIZE));
+
+	void *out_buf = static_cast<byte*>(
+		ut_align(out_buf_unaligned,
+			 UNIV_PAGE_SIZE));
+
 	if (buf_page_get_state(bpage) == BUF_BLOCK_FILE_PAGE) {
 
 		/* Check that the actual page in the buffer pool is
@@ -1477,10 +1506,9 @@ retry:
 	}
 
 	IORequest	write_request(IORequest::WRITE);
+	fil_space_t*	space = fil_space_get(bpage->id.space());
 
-	if (srv_system_tablespace_encrypt) {
-
-		fil_space_t*	space = fil_space_get(TRX_SYS_SPACE);
+	if (FSP_FLAGS_GET_ENCRYPTION(space->flags)) {
 
 		write_request.encryption_key(space->encryption_key,
 					space->encryption_klen,
@@ -1512,7 +1540,7 @@ retry:
 		       univ_page_size.physical(),
 		       (void*) (buf_dblwr->write_buf
 				+ univ_page_size.physical() * i),
-		       NULL);
+		       NULL, out_buf);
 	} else {
 		/* It is a regular page. Write it directly to the
 		doublewrite buffer */
@@ -1520,7 +1548,7 @@ retry:
 		       page_id_t(TRX_SYS_SPACE, offset), univ_page_size, 0,
 		       univ_page_size.physical(),
 		       (void*) ((buf_block_t*) bpage)->frame,
-		       NULL);
+		       NULL, out_buf);
 	}
 
 	/* Now flush the doublewrite buffer data to disk */
@@ -1529,7 +1557,9 @@ retry:
 	/* We know that the write has been flushed to disk now
 	and during recovery we will find it in the doublewrite buffer
 	blocks. Next do the write to the intended position. */
-	buf_dblwr_write_block_to_datafile(bpage, sync);
+	buf_dblwr_write_block_to_datafile(bpage, out_buf, sync);
+
+	ut_free(out_buf_unaligned);
 }
 
 /** Compute the size and path of the parallel doublewrite buffer, create it,

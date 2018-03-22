@@ -1232,12 +1232,13 @@ _fil_io(
 	void*			buf,
 	void*			message,
 	trx_t*			trx,
-	bool			should_buffer);
+	bool			should_buffer,
+	void*			out_buf);
 
 #define fil_io(type, sync, page_id, page_size, byte_offset, \
-		len, buf, message) \
+		len, buf, message, out_buf) \
 	_fil_io(type, sync, page_id, page_size, byte_offset, \
-		len, buf, message, NULL, false)
+		len, buf, message, NULL, false, out_buf)
 
 /**********************************************************************//**
 Waits for an aio operation to complete. This function is used to write the

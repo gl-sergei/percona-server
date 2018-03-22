@@ -341,7 +341,7 @@ fil_read(
 	void*			buf)
 {
 	return(fil_io(IORequestRead, true, page_id, page_size,
-		      byte_offset, len, buf, NULL));
+		      byte_offset, len, buf, NULL, NULL));
 }
 
 /** Writes data to a space from a buffer. Remember that the possible incomplete
@@ -369,7 +369,7 @@ fil_write(
 	ut_ad(!srv_read_only_mode);
 
 	return(fil_io(IORequestWrite, true, page_id, page_size,
-		      byte_offset, len, buf, NULL));
+		      byte_offset, len, buf, NULL, NULL));
 }
 
 /*******************************************************************//**
@@ -810,6 +810,13 @@ retry:
 				" data dictionary expects page size "
 				<< space_page_size << " (flags="
 				<< ib::hex(space->flags) << ")!";
+		}
+
+		/* Enable encryption for system tablespace if requested */
+		if (is_system_tablespace(space_id) &&
+			srv_system_tablespace_encrypt &&
+			FSP_FLAGS_GET_ENCRYPTION(flags)) {
+			space->flags |= FSP_FLAGS_MASK_ENCRYPTION;
 		}
 
 		/* Validate the flags but do not compare the data directory
@@ -4972,7 +4979,7 @@ fil_write_zeros(
 		err = os_aio_func(
 			request, OS_AIO_SYNC, node->name,
 			node->handle, buf, offset, n_bytes, read_only_mode,
-			NULL, NULL, node->space->id, NULL, false);
+			NULL, NULL, node->space->id, NULL, false, NULL);
 #endif /* UNIV_HOTBACKUP */
 
 		if (err != DB_SUCCESS) {
@@ -5524,7 +5531,8 @@ _fil_io(
 	void*			buf,
 	void*			message,
 	trx_t*			trx,
-	bool			should_buffer)
+	bool			should_buffer,
+	void*			out_buf)
 {
 	os_offset_t		offset;
 	IORequest		req_type(type);
@@ -5840,7 +5848,7 @@ _fil_io(
 		mode, node->name, node->handle, buf, offset, len,
 		fsp_is_system_temporary(page_id.space())
 		? false : srv_read_only_mode,
-		node, message, page_id.space(), trx, should_buffer);
+		node, message, page_id.space(), trx, should_buffer, out_buf);
 
 #endif /* UNIV_HOTBACKUP */
 

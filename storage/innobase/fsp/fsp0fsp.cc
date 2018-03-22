@@ -1053,6 +1053,52 @@ fsp_header_rotate_encryption(
 	return(true);
 }
 
+/** Enable encryption for already existing tablespace.
+@param[in]	space_id	tablespace id
+@return true if success */
+bool
+fsp_enable_encryption(
+	ulint space_id)
+{
+	byte		encrypt_info[ENCRYPTION_INFO_SIZE_V2];
+	fil_space_t*	space = fil_space_get(space_id);
+
+	memset(encrypt_info, 0, ENCRYPTION_INFO_SIZE_V2);
+
+	if (!fsp_header_fill_encryption_info(space, encrypt_info)) {
+		return(false);
+	}
+
+	mtr_t		mtr;
+	mtr_start(&mtr);
+	mtr_set_log_mode(&mtr, MTR_LOG_NO_REDO);
+	mtr.set_named_space(space_id);
+
+	space = mtr_x_lock_space(space_id, &mtr);
+
+	const page_size_t	page_size(space->flags);
+	buf_block_t* block = buf_page_get(page_id_t(space->id, 0), page_size,
+					  RW_SX_LATCH, &mtr);
+	buf_block_dbg_add_level(block, SYNC_FSP_PAGE);
+	ut_ad(space->id == page_get_space_id(buf_block_get_frame(block)));
+
+	page_t* page = buf_block_get_frame(block);
+	mlog_write_ulint(FSP_HEADER_OFFSET + FSP_SPACE_FLAGS + page,
+			 space->flags, MLOG_4BYTES, &mtr);
+
+	ulint offset = fsp_header_get_encryption_offset(page_size);
+	ut_ad(offset != 0 && offset < UNIV_PAGE_SIZE);
+
+	mlog_write_string(page + offset,
+			  encrypt_info,
+			  ENCRYPTION_INFO_SIZE_V2,
+			  &mtr);
+
+	mtr_commit(&mtr);
+
+	return(true);
+}
+
 /** Initializes the space header of a new created space and creates also the
 insert buffer tree root if space == 0.
 @param[in]	space_id	space id

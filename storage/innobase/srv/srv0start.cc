@@ -1971,6 +1971,11 @@ innobase_start_or_create_for_mysql(void)
 		return(srv_init_abort(DB_ERROR));
 	}
 
+	if (create_new_db && srv_system_tablespace_encrypt) {
+		srv_sys_space.set_flags(
+			srv_sys_space.flags() | FSP_FLAGS_MASK_ENCRYPTION);
+	}
+
 	srv_startup_is_before_trx_rollback_phase = !create_new_db;
 
 	/* Check if undo tablespaces and redo log files exist before creating
@@ -2165,6 +2170,23 @@ files_checked:
 	/* Open all log files and data files in the system
 	tablespace: we keep them open until database
 	shutdown */
+
+	if (srv_system_tablespace_encrypt && !create_new_db) {
+		srv_sys_space.set_flags(srv_sys_space.m_files.begin()->flags());
+	}
+
+	if (srv_system_tablespace_encrypt &&
+		FSP_FLAGS_GET_ENCRYPTION(srv_sys_space.flags()) &&
+		!create_new_db) {
+		dberr_t err = fil_set_encryption(srv_sys_space.space_id(),
+			Encryption::AES,
+			srv_sys_space.m_files.begin()->m_encryption_key,
+			srv_sys_space.m_files.begin()->m_encryption_iv);
+		ut_a(err == DB_SUCCESS);
+
+		fil_space_t* space = fil_space_get(srv_sys_space.space_id());
+		space->flags |= FSP_FLAGS_MASK_ENCRYPTION;
+	}
 
 	fil_open_log_and_system_tablespace_files();
 

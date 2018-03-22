@@ -276,6 +276,7 @@ pfs_os_aio_func(
 	ulint		space_id,
 	trx_t*		trx,
 	bool		should_buffer,
+	void*		out_buf,
 	const char*	src_file,
 	ulint		src_line)
 {
@@ -292,7 +293,7 @@ pfs_os_aio_func(
 
 	dberr_t	result = os_aio_func(
 		type, mode, name, file, buf, offset, n, read_only, m1, m2,
-		space_id, trx, should_buffer);
+		space_id, trx, should_buffer, out_buf);
 
 	register_pfs_file_io_end(locker, n);
 

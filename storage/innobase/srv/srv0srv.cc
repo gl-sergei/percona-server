@@ -2678,6 +2678,64 @@ func_exit:
 }
 
 /*********************************************************************//**
+Set temporary tablespace to be encrypted if global variable
+innodb_temp_tablespace_encrypt is TRUE. In case of failure, changes
+value of innodb_temp_tablespace_encrypt back to FALSE and logs error
+message. */
+static
+void
+srv_enable_sys_encryption_if_set()
+{
+	ut_ad(!srv_read_only_mode);
+
+	if (srv_shutdown_state != SRV_SHUTDOWN_NONE) {
+		return;
+	}
+
+	if (!srv_system_tablespace_encrypt) {
+		return;
+	}
+
+	if (!FSP_FLAGS_GET_ENCRYPTION(srv_sys_space.flags())) {
+
+		/* Make sure the keyring is loaded. */
+		// if (!Encryption::check_keyring()) {
+		// 	srv_tmp_tablespace_encrypt = false;
+		// 	ib::error() << "Can't set temporary tablespace "
+		// 		    << "to be encrypted because "
+		// 		    << "keyring plugin is not "
+		// 		    << "available.";
+		// 	return;
+		// }
+
+		fil_space_t* space = fil_space_get(srv_sys_space.space_id());
+
+		space->flags |= FSP_FLAGS_MASK_ENCRYPTION;
+
+		dberr_t	err = fil_set_encryption(space->id,
+			Encryption::AES, NULL, NULL);
+
+		ut_a(err == DB_SUCCESS);
+
+// #ifdef UNIV_DEBUG
+// 		if (srv_master_encrypt_debug != 0) {
+// 			srv_master_encrypt_debug = 2;
+// 			while (srv_master_encrypt_debug != 0) {
+// 				os_thread_sleep(10000);
+// 			}
+// 		}
+// #endif
+
+		if (!fsp_enable_encryption(srv_sys_space.space_id())) {
+			srv_system_tablespace_encrypt = false;
+			ib::error() << "Can't set system tablespace "
+				    << "to be encrypted.";
+			return;
+		}
+	}
+}
+
+/*********************************************************************//**
 Puts master thread to sleep. At this point we are using polling to
 service various activities. Master thread sleeps for one second before
 checking the state of the server again */
@@ -2756,6 +2814,9 @@ loop:
 		} else {
 			srv_master_do_idle_tasks();
 		}
+
+		/* Enable temporary tablespace encryption if set */
+		srv_enable_sys_encryption_if_set();
 	}
 
 	while (srv_shutdown_state != SRV_SHUTDOWN_EXIT_THREADS

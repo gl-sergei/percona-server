@@ -1287,10 +1287,10 @@ The wrapper functions have the prefix of "innodb_". */
 
 # define os_aio(type, mode, name, file, buf, offset,			\
 		n, read_only, message1, message2, space_id, trx,	\
-		should_buffer)	\
+		should_buffer, out_buf)	\
 	pfs_os_aio_func(type, mode, name, file, buf, offset,		\
 			n, read_only, message1, message2, space_id,	\
-			trx, should_buffer, __FILE__, __LINE__)
+			trx, should_buffer, out_buf, __FILE__, __LINE__)
 
 # define os_file_read_pfs(type, file, buf, offset, n)			\
 	pfs_os_file_read_func(type, file, buf, offset, n, NULL,		\
@@ -1575,6 +1575,7 @@ pfs_os_aio_func(
 	ulint		space_id,
 	trx_t*		trx,
 	bool		should_buffer,
+	void*		out_buf,
 	const char*	src_file,
 	ulint		src_line);
 
@@ -1746,10 +1747,10 @@ to original un-instrumented file I/O APIs */
 
 # define os_aio(type, mode, name, file, buf, offset,			\
 		n, read_only, message1, message2, space_id, trx,	\
-		should_buffer)	\
+		should_buffer, out_buf)	\
 	os_aio_func(type, mode, name, file, buf, offset,		\
 		n, read_only, message1, message2, space_id, trx,	\
-		should_buffer)
+		should_buffer, out_buf)
 
 # define os_file_read_pfs(type, file, buf, offset, n)			\
 	os_file_read_func(type, file, buf, offset, n)
@@ -2120,7 +2121,8 @@ os_aio_func(
 	void*		m2,
 	ulint		space_id,
 	trx_t*		trx,
-	bool		should_buffer);
+	bool		should_buffer,
+	void*		out_buf);
 
 /** Wakes up all async i/o threads so that they know to exit themselves in
 shutdown. */

@@ -1088,7 +1088,7 @@ buf_flush_write_block_low(
 
 		fil_io(request,
 		       sync, bpage->id, bpage->size, 0, bpage->size.physical(),
-		       frame, bpage);
+		       frame, bpage, NULL);
 
 	} else if (flush_type == BUF_FLUSH_SINGLE_PAGE) {
 		buf_dblwr_write_single_page(bpage, sync);

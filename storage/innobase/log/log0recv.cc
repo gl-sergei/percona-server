@@ -1193,7 +1193,7 @@ recv_log_format_0_recover(lsn_t lsn)
 	       univ_page_size,
 	       (ulint) ((source_offset & ~(OS_FILE_LOG_BLOCK_SIZE - 1))
 			% univ_page_size.physical()),
-	       OS_FILE_LOG_BLOCK_SIZE, buf, NULL);
+	       OS_FILE_LOG_BLOCK_SIZE, buf, NULL, NULL);
 
 	if (log_block_calc_checksum_format_0(buf)
 	    != log_block_get_checksum(buf)) {
@@ -4030,7 +4030,7 @@ recv_recovery_from_checkpoint_start(
 				MAX_SRV_LOG_WRITE_AHEAD_SIZE));
 
 	fil_io(IORequestLogRead, true, page_id, univ_page_size, 0,
-	       LOG_FILE_HDR_SIZE, log_hdr_buf, max_cp_group);
+	       LOG_FILE_HDR_SIZE, log_hdr_buf, max_cp_group, NULL);
 
 	if (0 == ut_memcmp(log_hdr_buf + LOG_HEADER_CREATOR,
 			   (byte*)"ibbackup", (sizeof "ibbackup") - 1)) {
@@ -4065,7 +4065,7 @@ recv_recovery_from_checkpoint_start(
 		/* Write to the log file to wipe over the label */
 		fil_io(IORequestLogWrite, true, page_id,
 		       univ_page_size, 0, OS_FILE_LOG_BLOCK_SIZE, log_hdr_buf,
-		       max_cp_group);
+		       max_cp_group, NULL);
 	}
 
 	ut_free(log_hdr_buf_unalign);
