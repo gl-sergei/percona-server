@@ -7366,6 +7366,19 @@ AIO::reserve_slot(
 		acquire();
 	}
 
+	if (type.is_write() && type.is_encrypted()) {
+
+		ulint	page_type = fil_page_get_type((const byte *) slot->buf);
+
+		if (page_type == FIL_PAGE_ENCRYPTED
+		      || page_type == FIL_PAGE_COMPRESSED_AND_ENCRYPTED
+		      || page_type == FIL_PAGE_ENCRYPTED_RTREE) {
+			fprintf(stderr, "PAGE IS ALREADY ENCRYPTED\n");
+			ut_error;
+		}
+
+	}
+
 	/* We do encryption after compression, since if we do encryption
 	before compression, the encrypted data will cause compression fail
 	or low compression rate. */
@@ -8178,6 +8191,17 @@ private:
 	@param[in,out]	slot		Slot that has the IO context */
 	void write(Slot* slot)
 	{
+
+		if (slot->type.is_write() && slot->type.is_encrypted()) {
+			ulint	page_type = fil_page_get_type((const byte *) slot->ptr);
+
+			if (page_type == FIL_PAGE_ENCRYPTED
+			      || page_type == FIL_PAGE_COMPRESSED_AND_ENCRYPTED
+			      || page_type == FIL_PAGE_ENCRYPTED_RTREE) {
+				fprintf(stderr, "PAGE IS ALREADY ENCRYPTED\n");
+				ut_error;
+			}
+		}
 		dberr_t	err = os_file_write_func(
 			slot->type,
 			slot->name,

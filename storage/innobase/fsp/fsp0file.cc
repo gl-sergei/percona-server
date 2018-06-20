@@ -357,6 +357,13 @@ Datafile::read_first_page(bool read_only_mode)
 		}
 	}
 
+	fprintf(stderr, "m_first_page 0x%02 0x%02 0x%02 0x%02 0x%02\n",
+		(int)(((unsigned char*)m_first_page)[0]),
+		(int)(((unsigned char*)m_first_page)[1]),
+		(int)(((unsigned char*)m_first_page)[2]),
+		(int)(((unsigned char*)m_first_page)[3]),
+		(int)(((unsigned char*)m_first_page)[4]));
+
 	if (err == DB_SUCCESS && m_order == 0) {
 
 		m_flags = fsp_header_get_flags(m_first_page);
@@ -562,6 +569,13 @@ Datafile::validate_first_page(lsn_t*	flush_lsn,
 				m_first_page + FIL_PAGE_FILE_FLUSH_LSN);
 		}
 	}
+
+	fprintf(stderr, "m_first_page 0x%02 0x%02 0x%02 0x%02 0x%02\n",
+		(int)(((unsigned char*)m_first_page)[0]),
+		(int)(((unsigned char*)m_first_page)[1]),
+		(int)(((unsigned char*)m_first_page)[2]),
+		(int)(((unsigned char*)m_first_page)[3]),
+		(int)(((unsigned char*)m_first_page)[4]));
 
 	/* Check if the whole page is blank. */
 	if (error_txt == NULL

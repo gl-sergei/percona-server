@@ -5814,10 +5814,17 @@ _fil_io(
 
 		req_type.set_punch_hole();
 
-		req_type.compression_algorithm(space->compression_type);
-
 	} else {
 		req_type.clear_compressed();
+	}
+
+	ulint	page_type = fil_page_get_type((const byte *) buf);
+
+	if (req_type.is_encrypted() && (page_type == FIL_PAGE_ENCRYPTED
+		      || page_type == FIL_PAGE_COMPRESSED_AND_ENCRYPTED
+		      || page_type == FIL_PAGE_ENCRYPTED_RTREE)) {
+		fprintf(stderr, "PAGE IS ALREADY ENCRYPTED\n");
+		ut_error;
 	}
 
 	/* Set encryption information. */

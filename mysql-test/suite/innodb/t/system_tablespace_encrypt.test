@@ -1,0 +1,110 @@
+# Test system tablespace encryption
+
+--source include/have_innodb.inc
+--source include/not_embedded.inc
+
+--let $restart_parameters="restart: --early-plugin-load="keyring_file=$KEYRING_PLUGIN" --loose-keyring_file_data=$MYSQL_TMP_DIR/keyring1 --enable-innodb-system-tablespace-encrypt"
+--source include/restart_mysqld.inc
+
+let $MYSQLD_BASEDIR= `select @@basedir`;
+--mkdir $MYSQL_TMP_DIR/datadir1
+
+let $MYSQLD_DATADIR1 = $MYSQL_TMP_DIR/datadir1/data;
+
+--echo # Stop the instance which was created by MTR
+--source include/shutdown_mysqld.inc
+
+let BOOTSTRAP_SQL=$MYSQL_TMP_DIR/boot.sql;
+
+--echo # create bootstrap file
+write_file $BOOTSTRAP_SQL;
+CREATE DATABASE test;
+EOF
+
+# Note: we add the following parameters: "--innodb_log_file_size=5M
+# --innodb_log_files_in_group=2" to reduce bootstrap time. By default
+# innodb create 2*48MB redo log. With 2*5MB file, bootstrap takes less
+# time to create redo log files.
+
+let BOOSTRAP_CMD = $MYSQLD --no-defaults --initialize-insecure $KEYRING_PLUGIN_OPT --lc_messages_dir=$MYSQL_SHAREDIR --basedir=$MYSQLD_BASEDIR --datadir=$MYSQLD_DATADIR1 --innodb_log_file_size=5M --innodb_log_files_in_group=2 --init-file=$BOOTSTRAP_SQL --innodb_undo_tablespaces=0 --early-plugin-load="keyring_file=$KEYRING_PLUGIN" --loose-keyring_file_data=$MYSQL_TMP_DIR/keyring1 --enable-innodb-system-tablespace-encrypt </dev/null>>$MYSQLTEST_VARDIR/tmp/bootstrap.log 2>&1;
+
+--echo # Bootstrap new instance with encrypted system tablespace
+--exec $BOOSTRAP_CMD
+
+--echo # Start the instance with encrypted system tablespace
+--replace_result $MYSQL_TMP_DIR MYSQL_TMP_DIR
+--let $restart_parameters="restart: --datadir=$MYSQLD_DATADIR1 --innodb_log_file_size=5M --innodb_log_files_in_group=2 --innodb_undo_tablespaces=0 --early-plugin-load="keyring_file=$KEYRING_PLUGIN" --loose-keyring_file_data=$MYSQL_TMP_DIR/keyring1 --enable-innodb-system-tablespace-encrypt"
+--source include/start_mysqld.inc
+
+
+SET @innodb_max_dirty_pages_pct_default = @@innodb_max_dirty_pages_pct;
+SET GLOBAL innodb_max_dirty_pages_pct = 0;
+
+--let $MYSQL_DATA_DIR= `select @@datadir`
+
+CREATE TABLESPACE t3 ADD DATAFILE 't3.ibd';
+CREATE TABLESPACE t4 ADD DATAFILE 't4.ibd' ENCRYPTION='y';
+
+CREATE TABLE t1 (a TEXT) TABLESPACE = innodb_system;
+CREATE TABLE t2 (a TEXT);
+CREATE TABLE t3 (a TEXT) TABLESPACE = t3;
+CREATE TABLE t4 (a TEXT) TABLESPACE = t4 ENCRYPTION='y';
+
+INSERT INTO t1 (a) VALUES ('Abracadabra is of unknown origin, and its first occurrence is');
+INSERT INTO t2 (a) VALUES ('Abracadabra is of unknown origin, and its first occurrence is');
+INSERT INTO t3 (a) VALUES ('Abracadabra is of unknown origin, and its first occurrence is');
+INSERT INTO t4 (a) VALUES ('Abracadabra is of unknown origin, and its first occurrence is');
+
+# wait until pages flushed
+--let $wait_condition= SELECT variable_value = 0 FROM performance_schema.global_status WHERE LOWER(variable_name) = 'innodb_buffer_pool_pages_dirty'
+--source include/wait_condition.inc
+
+--echo make sure that system tablespace is encrypted
+--let $grep_pattern= first occurrence
+--let $grep_file= $MYSQL_DATA_DIR/ibdata1
+--let $grep_output= boolean
+--source include/grep_pattern.inc
+
+--echo make sure that file-per-table tablespace is not encrypted
+--let $grep_pattern= first occurrence
+--let $grep_file= $MYSQL_DATA_DIR/test/t2.ibd
+--let $grep_output= boolean
+--source include/grep_pattern.inc
+
+--echo make sure that general tablespace without encryption option is not encrypted
+--let $grep_pattern= first occurrence
+--let $grep_file= $MYSQL_DATA_DIR/t3.ibd
+--let $grep_output= boolean
+--source include/grep_pattern.inc
+
+--echo make sure that general tablespace with encryption option is encrypted
+--let $grep_pattern= first occurrence
+--let $grep_file= $MYSQL_DATA_DIR/t4.ibd
+--let $grep_output= boolean
+--source include/grep_pattern.inc
+
+--echo test restart failure without system tablespace encryption option
+--replace_result $MYSQL_TMP_DIR MYSQL_TMP_DIR
+--let $restart_parameters="restart: --datadir=$MYSQLD_DATADIR1 --innodb_log_file_size=5M --innodb_log_files_in_group=2 --innodb_undo_tablespaces=0 --early-plugin-load="keyring_file=$KEYRING_PLUGIN" --loose-keyring_file_data=$MYSQL_TMP_DIR/keyring1"
+--source include/start_mysqld.inc
+
+CREATE TABLE t5 (a TEXT) TABLESPACE = innodb_system;
+
+SELECT @@innodb_system_tablespace_encrypt;
+
+
+DROP TABLE t1;
+DROP TABLE t2;
+DROP TABLE t3;
+DROP TABLE t4;
+
+DROP TABLESPACE t3;
+DROP TABLESPACE t4;
+
+SET GLOBAL innodb_max_dirty_pages_pct = @innodb_max_dirty_pages_pct_default;
+
+# start default mysql instance
+
+--let $restart_parameters=
+--source include/restart_mysqld.inc
+
