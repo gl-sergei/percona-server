@@ -11820,6 +11820,8 @@ create_table_info_t::create_option_encryption_is_valid() const
 	bool table_is_encrypted =
 		!Encryption::is_none(m_create_info->encrypt_type.str);
 
+	const char *tablespace_name = m_create_info->tablespace;
+
 	if (srv_encrypt_tables == SRV_ENCRYPT_TABLES_FORCE
 	  && Encryption::none_explicitly_specified(m_create_info->encrypt_type.str)) {
 		my_printf_error(ER_INVALID_ENCRYPTION_OPTION,
@@ -11828,12 +11830,9 @@ create_table_info_t::create_option_encryption_is_valid() const
 		return(false);
 	}
 
-	if ((m_create_info->options & HA_LEX_CREATE_TMP_TABLE)
-		&& table_is_encrypted) {
-		my_printf_error(ER_ILLEGAL_HA_CREATE_OPTION,
-			"InnoDB: Unsupported encryption option for"
-			" temporary tables.", MYF(0));
-		return(false);
+	if ((m_create_info->options & HA_LEX_CREATE_TMP_TABLE)) {
+		space_id = srv_tmp_space.space_id();
+		tablespace_name = reserved_temporary_space_name;
 	} else if (m_use_shared_space) {
 		space_id = fil_space_get_id_by_name(m_create_info->tablespace);
 
@@ -11842,15 +11841,23 @@ create_table_info_t::create_option_encryption_is_valid() const
 		ut_a(space_id != ULINT_UNDEFINED);
 	} else if (!m_use_file_per_table) {
 		space_id = TRX_SYS_SPACE;
+		tablespace_name = reserved_system_space_name;
 	} else {
 		return(true);
 	}
 
+	ut_ad(tablespace_name != NULL);
+
 	ulint	fsp_flags = fil_space_get_flags(space_id);
 
 	bool tablespace_is_encrypted = FSP_FLAGS_GET_ENCRYPTION(fsp_flags);
-	const char *tablespace_name = m_create_info->tablespace != NULL ?
-		m_create_info->tablespace : reserved_system_space_name;
+
+	if (space_id == srv_tmp_space.space_id()
+	    && m_create_info->encrypt_type.length == 0) {
+		/* Encryption is forced for temporary tables if tablespace
+		is encrypted */
+		table_is_encrypted = tablespace_is_encrypted;
+	}
 
 	if (table_is_encrypted && !tablespace_is_encrypted) {
 		my_printf_error(ER_ILLEGAL_HA_CREATE_OPTION,
@@ -12254,14 +12261,6 @@ create_table_info_t::innobase_table_flags()
 			/* Incorrect encryption option */
 			my_error(ER_INVALID_ENCRYPTION_OPTION, MYF(0));
 			DBUG_RETURN(false);
-		}
-
-		if (m_create_info->options & HA_LEX_CREATE_TMP_TABLE) {
-			if (!Encryption::is_none(encryption)) {
-				/* Can't encrypt shared tablespace */
-				my_error(ER_TABLESPACE_CANNOT_ENCRYPT, MYF(0));
-				DBUG_RETURN(false);
-			}
 		}
 	}
 

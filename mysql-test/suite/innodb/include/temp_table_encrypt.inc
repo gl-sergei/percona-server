@@ -52,11 +52,11 @@ SET GLOBAL innodb_temp_tablespace_encrypt = ON;
 --let $wait_condition= SELECT SUM(VARIABLE_VALUE) > $innodb_master_loops + 2 FROM performance_schema.global_status WHERE VARIABLE_NAME LIKE 'innodb_master%loops'
 --source include/wait_condition.inc
 
---error ER_ILLEGAL_HA_CREATE_OPTION
-CREATE TEMPORARY TABLE t02 (a INT) ENGINE=InnoDB ENCRYPTION='Y';
+CREATE TEMPORARY TABLE t02 (a TEXT) ENGINE=InnoDB ENCRYPTION='Y';
+INSERT INTO t02 VALUES ('Curabitur laoreet, velit non interdum venenatis');
 
+--error ER_ILLEGAL_HA_CREATE_OPTION
 CREATE TEMPORARY TABLE t03 (a TEXT) ENGINE=InnoDB ENCRYPTION='N';
-INSERT INTO t03 VALUES ('Curabitur laoreet, velit non interdum venenatis');
 
 # wait until pages flushed
 --let $wait_condition= SELECT variable_value = 0 FROM performance_schema.global_status WHERE LOWER(variable_name) = 'innodb_buffer_pool_pages_dirty'
@@ -87,11 +87,11 @@ INSERT INTO t04 VALUES ('Praesent tristique eros a tempus fringilla');
 --let $grep_output= boolean
 --source include/grep_pattern.inc
 
---error ER_ILLEGAL_HA_CREATE_OPTION
 CREATE TEMPORARY TABLE t05 (a INT) ENGINE=InnoDB ROW_FORMAT=COMPRESSED ENCRYPTION='y';
+INSERT INTO t05 VALUES (1), (2), (3);
 
+--error ER_ILLEGAL_HA_CREATE_OPTION
 CREATE TEMPORARY TABLE t06 (a INT) ENGINE=InnoDB ROW_FORMAT=COMPRESSED ENCRYPTION='n';
-INSERT INTO t06 VALUES (1), (2), (3);
 
 # test that we can turn encryption OFF and ON
 
