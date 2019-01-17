@@ -3862,6 +3862,59 @@ static bool rocksdb_show_status(handlerton *const hton, THD *const thd,
   return res;
 }
 
+/**
+  Implements Log_resource lock.
+*/
+static bool rocksdb_lock_hton_log(handlerton *hton) {
+  const auto s = rdb->LockWAL();
+  return(!s.ok());
+}
+
+/**
+  Implements Log_resource unlock.
+*/
+static bool rocksdb_unlock_hton_log(handlerton *hton) {
+  const auto s = rdb->UnlockWAL();
+  return(!s.ok());
+}
+
+/**
+  Implements Log_resource collect_info.
+*/
+static bool rocksdb_collect_hton_log_info(handlerton *hton, Json_dom *json) {
+  bool ret_val = false;
+  rocksdb::VectorLogPtr live_wal_files;
+  const auto s = rdb->GetSortedWalFiles(live_wal_files);
+
+  if (!s.ok()) {
+    return(true);
+  }
+
+
+  Json_object *json_engines = static_cast<Json_object *>(json);
+  Json_object json_rocksdb;
+
+  if (live_wal_files.size() > 0) {
+    const auto cur_wal_idx = live_wal_files.size() - 1;
+
+    DBUG_ASSERT(live_wal_files[cur_wal_idx]->Type() == kAliveLogFile);
+
+    Json_int json_log_number(live_wal_files[cur_wal_idx]->LogNumber());
+    Json_string json_path_name(live_wal_files[cur_wal_idx]->PathName());
+    Json_int json_size_file_bytes(live_wal_files[cur_wal_idx]->SizeFileBytes());
+
+    ret_val = json_rocksdb.add_clone("LogNumber", &json_log_number);
+    if (!ret_val)
+      ret_val = json_rocksdb.add_clone("PathName", &json_path_name);
+    if (!ret_val)
+      ret_val = json_rocksdb.add_clone("SizeFileBytes", &json_size_file_bytes);
+  }
+
+  if (!ret_val) ret_val = json_engines->add_clone("RocksDB", &json_rocksdb);
+
+  return(ret_val);
+}
+
 static inline void rocksdb_register_tx(handlerton *const hton, THD *const thd,
                                        Rdb_transaction *const tx) {
   DBUG_ASSERT(tx != nullptr);
@@ -4068,6 +4121,9 @@ static int rocksdb_init_func(void *const p) {
   rocksdb_hton->rollback = rocksdb_rollback;
   rocksdb_hton->db_type = DB_TYPE_ROCKSDB;
   rocksdb_hton->show_status = rocksdb_show_status;
+  rocksdb_hton->lock_hton_log = rocksdb_lock_hton_log;
+  rocksdb_hton->unlock_hton_log = rocksdb_unlock_hton_log;
+  rocksdb_hton->collect_hton_log_info = rocksdb_collect_hton_log_info;
   rocksdb_hton->start_consistent_snapshot =
       rocksdb_start_tx_and_assign_read_view;
   rocksdb_hton->savepoint_set = rocksdb_savepoint;
