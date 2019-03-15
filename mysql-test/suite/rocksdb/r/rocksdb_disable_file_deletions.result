@@ -1,0 +1,5 @@
+SET @orig_value = @@session.rocksdb_disable_file_deletions;
+CREATE TABLE t (a INT, b TEXT) ENGINE=ROCKSDB;
+SET SESSION rocksdb_disable_file_deletions = 1;
+DROP TABLE t;
+SET SESSION ROCKSDB_DISABLE_FILE_DELETIONS = @orig_value;
