@@ -1360,8 +1360,7 @@ static MYSQL_SYSVAR_STR(compact_cf, rocksdb_compact_cf_name,
                         rocksdb_compact_column_family_stub, "");
 
 static MYSQL_SYSVAR_STR(create_checkpoint, rocksdb_checkpoint_name,
-                        PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_NOCMDOPT,
-                        "Checkpoint directory",
+                        PLUGIN_VAR_RQCMDARG, "Checkpoint directory",
                         rocksdb_create_checkpoint_validate,
                         rocksdb_create_checkpoint_update, "");
 

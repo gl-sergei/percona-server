@@ -9,7 +9,7 @@ INSERT INTO t VALUES (1, REPEAT(UUID(), 100));
 
 --echo verify that rocksdb info has been added to p_s.log_status
 --replace_regex /[0-9]+/x/
-SELECT storage_engines->>"$.RocksDB" FROM performance_schema.log_status;
+SELECT storage_engines->>"$.RocksDB.wal_files[0]" FROM performance_schema.log_status;
 
 SET SESSION rocksdb_disable_file_deletions=0;
 
